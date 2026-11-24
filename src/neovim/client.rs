@@ -1853,9 +1853,26 @@ where
             NeovimError::Connection("Not connected to any Neovim instance".to_string())
         })?;
 
+        // The Lua notifies this connection's channel rather than broadcasting to every attached channel, so it
+        // needs the id. Only the RPC caller can learn its own channel, through nvim_get_api_info, whose first
+        // element is that id -- the call is not exposed to Lua, which is why it is fetched here and passed in.
+        let channel = conn
+            .nvim
+            .get_api_info()
+            .await
+            .map_err(|e| NeovimError::Api(format!("Failed to get api info: {e}")))?
+            .first()
+            .and_then(Value::as_u64)
+            .ok_or_else(|| {
+                NeovimError::Api("nvim_get_api_info returned no channel id".to_string())
+            })?;
+
         match conn
             .nvim
-            .exec_lua(include_str!("lua/setup_autocmd.lua"), vec![])
+            .exec_lua(
+                include_str!("lua/setup_autocmd.lua"),
+                vec![Value::from(channel)],
+            )
             .await
         {
             Ok(_) => {
